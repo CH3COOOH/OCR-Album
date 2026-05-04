@@ -2,9 +2,11 @@ from azstd_py import afile
 import pathdb
 import ocr
 
-class DBHandler:
-    def __init__(self, dir_root, db_fname):
+class Scanner:
+    def __init__(self, dir_root, db_fname, n_thread, gpu):
         self.root = dir_root
+        self.n_thread = n_thread
+        self.gpu = gpu
         self.db = pathdb.PathDB(fname=db_fname)
         self.ocr = None
         self.tree = None
@@ -15,7 +17,7 @@ class DBHandler:
     
     def create_db(self, batch_size=10):
         if self.ocr == None:
-            self.ocr = ocr.OCRFactory()
+            self.ocr = ocr.OCRFactory(n_thread=self.n_thread, gpu=self.gpu)
         batch = []
         n_files = len(self.tree)
         n_record = 0
@@ -43,7 +45,7 @@ class DBHandler:
         return self.db.search_by_text(keyword)
 
 if __name__ == '__main__':
-    dbh = DBHandler('test_img', 'testimgdb.db')
+    dbh = Scanner('test_img', 'testimgdb.db')
     print(dbh.create_tree())
     print(dbh.create_db())
     print(dbh.query('哈耶克'))

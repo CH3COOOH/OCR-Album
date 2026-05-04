@@ -1,17 +1,19 @@
 import easyocr
 import torch
+import warnings
 
-torch.set_num_threads(2)
+warnings.filterwarnings('ignore')
 
 class OCRFactory:
-	def __init__(self):
+	def __init__(self, n_thread=2, gpu=False):
 		self.reader = easyocr.Reader(
 			['ch_sim', 'en'],
-			gpu=False,
+			gpu=gpu,
 			download_enabled=False,
 			verbose=False,
 			model_storage_directory='./models'
-			)
+		)
+		torch.set_num_threads(n_thread)
 	
 	def img2Text(self, img_path):
 		r = self.reader.readtext(img_path, paragraph=False)

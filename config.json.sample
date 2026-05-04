@@ -1,0 +1,6 @@
+{
+    "root": "test_img",
+    "db_path": "local.db",
+    "use_gpu": false,
+    "torch_thread": 2
+}
