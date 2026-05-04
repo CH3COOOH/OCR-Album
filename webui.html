@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>OCR Image Search</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+  body {
+    font-family: sans-serif;
+    padding: 20px;
+    background: #f5f6fa;
+  }
+
+  /* --- 卡片容器 --- */
+  .card {
+    background: white;
+    padding: 16px;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    margin-bottom: 20px;
+  }
+
+  /* --- 输入行 --- */
+  .row {
+    display: flex;
+    align-items: center;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+
+  .label {
+    width: 60px;
+    font-weight: bold;
+  }
+
+  input {
+    flex: 1;
+    padding: 8px;
+    margin-right: 10px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+  }
+
+  button {
+    width: 120px;
+    padding: 8px 0;
+    border: none;
+    border-radius: 6px;
+    background: #4a90e2;
+    color: white;
+    font-size: 14px;
+  }
+
+  /* --- 移动端按钮占满宽度 --- */
+  @media (max-width: 600px) {
+    .row {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .label {
+      width: 100%;
+      margin-bottom: 6px;
+    }
+
+    input {
+      width: 100%;
+      margin-right: 0;
+      margin-bottom: 10px;
+    }
+
+    button {
+      width: 100%;
+    }
+  }
+
+  /* --- 搜索结果卡片 --- */
+  .result-card {
+    display: flex;
+    background: white;
+    padding: 12px;
+    border-radius: 10px;
+    box-shadow: 0 1px 6px rgba(0,0,0,0.08);
+    margin-bottom: 12px;
+    align-items: center;
+  }
+
+  .thumb {
+    width: 70px;
+    height: 70px;
+    border-radius: 8px;
+    object-fit: cover;
+    margin-right: 12px;
+  }
+
+  .info {
+    flex: 1;
+  }
+
+  .path {
+    font-size: 14px;
+    color: #555;
+    margin-bottom: 6px;
+  }
+
+  .text {
+    font-size: 13px;
+    color: #333;
+  }
+</style>
+</head>
+<body>
+
+<h2>OCR Image Search</h2>
+
+<div class="card">
+  <div class="row">
+    <div class="label">Root</div>
+    <input id="rootInput" type="text">
+    <button onclick="createDB()">CreateDB</button>
+  </div>
+
+  <div class="row">
+    <div class="label">Query</div>
+    <input id="queryInput" type="text">
+    <button onclick="search()">Search</button>
+  </div>
+</div>
+
+<div id="resultArea"></div>
+
+<script>
+let ws = null;
+
+function connectWS() {
+  ws = new WebSocket("ws://127.0.0.1:8765");
+
+  ws.onopen = () => console.log("WebSocket connected");
+
+  ws.onmessage = (event) => {
+    console.log(event.data);
+    const msg = JSON.parse(event.data);
+
+    if (msg.type === "db_done") {
+      alert("Database created. Scanned " + msg.count + " images.");
+    }
+
+    if (msg.type === "search_result") {
+      for (const item of JSON.parse(msg.payload)) {
+        console.log(item);
+        addCard(item);
+      }
+    }
+  };
+
+  ws.onclose = () => {
+    console.log("WebSocket closed, retrying...");
+    setTimeout(connectWS, 1000);
+  };
+}
+
+connectWS();
+
+function createDB() {
+  const root = document.getElementById("rootInput").value;
+  if (!root) return alert("Root is empty.");
+
+  ws.send(JSON.stringify({ cmd: "create_db", payload: "root" }));
+}
+
+function search() {
+  const q = document.getElementById("queryInput").value;
+  if (!q) return alert("Please input a keyword for searching.");
+
+  document.getElementById("resultArea").innerHTML = "";
+
+  ws.send(JSON.stringify({ cmd: "search", payload: q }));
+}
+
+function addCard(item) {
+  const area = document.getElementById("resultArea");
+
+  const div = document.createElement("div");
+  div.className = "result-card";
+
+  div.innerHTML = `
+    <img class="thumb" src="${item.path}" onclick="showImage('${item.path}')">
+    <div class="info">
+      <div class="path">${item.path}</div>
+      <div class="text">${item.text}</div>
+    </div>
+  `;
+
+  area.appendChild(div);
+}
+</script>
+
+<div id="imgPreview" 
+     style="display:none; position:fixed; left:0; top:0; width:100%; height:100%;
+            background:rgba(0,0,0,0.8); justify-content:center; align-items:center;">
+  <img id="previewImg" style="max-width:90%; max-height:90%; border-radius:10px;">
+</div>
+
+<script>
+function showImage(path) {
+  const preview = document.getElementById("imgPreview");
+  const img = document.getElementById("previewImg");
+  img.src = path;
+  preview.style.display = "flex";
+}
+
+document.getElementById("imgPreview").onclick = () => {
+  document.getElementById("imgPreview").style.display = "none";
+};
+</script>
+</body>
+</html>
