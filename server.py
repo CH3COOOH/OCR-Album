@@ -35,6 +35,7 @@ class WSServer:
 
     async def on_message_received(self, ws, message: str):
         j_msg = json.loads(message)
+        print(j_msg)
         if j_msg['cmd'] == 'create_db':
             pass
         elif j_msg['cmd'] == 'search':

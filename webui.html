@@ -12,7 +12,6 @@
     background: #f5f6fa;
   }
 
-  /* --- 卡片容器 --- */
   .card {
     background: white;
     padding: 16px;
@@ -21,7 +20,6 @@
     margin-bottom: 20px;
   }
 
-  /* --- 输入行 --- */
   .row {
     display: flex;
     align-items: center;
@@ -52,7 +50,7 @@
     font-size: 14px;
   }
 
-  /* --- 移动端按钮占满宽度 --- */
+
   @media (max-width: 600px) {
     .row {
       flex-direction: column;
@@ -75,7 +73,6 @@
     }
   }
 
-  /* --- 搜索结果卡片 --- */
   .result-card {
     display: flex;
     background: white;
@@ -84,6 +81,12 @@
     box-shadow: 0 1px 6px rgba(0,0,0,0.08);
     margin-bottom: 12px;
     align-items: center;
+  }
+
+  .result-card input.sel {
+    width: 20px;
+    margin-right: 10px;
+    flex: 0 0 20px;
   }
 
   .thumb {
@@ -126,6 +129,12 @@
     <input id="queryInput" type="text">
     <button onclick="search()">Search</button>
   </div>
+</div>
+
+<div id="actionBar" style="display:none; margin-bottom:15px;">
+  <button onclick="doCopy()">Copy</button>
+  <button onclick="doMove()">Move</button>
+  <button onclick="doDelete()">Delete</button>
 </div>
 
 <div id="resultArea"></div>
@@ -185,6 +194,7 @@ function addCard(item) {
   div.className = "result-card";
 
   div.innerHTML = `
+    <input type="checkbox" class="sel" data-path="${item.path}" onchange="updateSelection()">
     <img class="thumb" src="${item.path}" onclick="showImage('${item.path}')">
     <div class="info">
       <div class="path">${item.path}</div>
@@ -194,6 +204,46 @@ function addCard(item) {
 
   area.appendChild(div);
 }
+
+function updateSelection() {
+  const any = document.querySelectorAll('.sel:checked').length > 0;
+  document.getElementById("actionBar").style.display = any ? "block" : "none";
+}
+
+function doCopy() {
+  const paths = [...document.querySelectorAll('.sel:checked')].map(x => x.dataset.path);
+  const target = prompt("Copy to: ");
+  if (!target) return;
+
+  ws.send(JSON.stringify({
+    cmd: "copy",
+    paths: paths,
+    target: target
+  }));
+}
+
+function doMove() {
+  const paths = [...document.querySelectorAll('.sel:checked')].map(x => x.dataset.path);
+  const target = prompt("Move to: ");
+  if (!target) return;
+
+  ws.send(JSON.stringify({
+    cmd: "move",
+    paths: paths,
+    target: target
+  }));
+}
+
+function doDelete() {
+  const paths = [...document.querySelectorAll('.sel:checked')].map(x => x.dataset.path);
+  if (!confirm("Are you sure?")) return;
+
+  ws.send(JSON.stringify({
+    cmd: "delete",
+    paths: paths
+  }));
+}
+
 </script>
 
 <div id="imgPreview" 
