@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import json
 from pathlib import Path
+import shutil
 import asyncio
 import websockets
 
@@ -36,16 +37,111 @@ class WSServer:
     async def on_message_received(self, ws, message: str):
         j_msg = json.loads(message)
         print(j_msg)
-        if j_msg['cmd'] == 'create_db':
-            pass
-        elif j_msg['cmd'] == 'search':
-            qu = j_msg['payload']
-            an = self.scanner.query(qu)
-            an_j = []
-            for a in an:
-                an_j.append({'path': Path(a[0]).as_posix(), 'text': a[1]})
-            print(an_j)
-            await ws.send(json.dumps({'type': 'search_result', 'payload': json.dumps(an_j)}))
+        try:
+            cmd = j_msg.get('cmd')
+            if cmd == 'create_db':
+                pass
+            elif cmd == 'search':
+                qu = j_msg['payload']
+                an = self.scanner.query(qu)
+                an_j = []
+                for a in an:
+                    an_j.append({'path': Path(a[0]).as_posix(), 'text': a[1]})
+                print(an_j)
+                await ws.send(json.dumps({'type': 'search_result', 'payload': json.dumps(an_j)}))
+            elif cmd == 'copy':
+                await self._handle_copy(ws, j_msg)
+            elif cmd == 'move':
+                await self._handle_move(ws, j_msg)
+            elif cmd == 'delete':
+                await self._handle_delete(ws, j_msg)
+            else:
+                await self._send_error(ws, 'unknown_command', cmd, 'Unsupported command.')
+        except Exception as e:
+            await self._send_error(ws, 'command_failed', j_msg.get('cmd'), str(e))
+
+    def _resolve_source_paths(self, paths):
+        if not isinstance(paths, list) or len(paths) == 0:
+            raise ValueError('paths must be a non-empty list')
+
+        root = Path(self.scanner.root).resolve()
+        resolved = []
+        for raw_path in paths:
+            src = Path(raw_path)
+            if not src.exists():
+                raise FileNotFoundError(f'Source not found: {raw_path}')
+            src_resolved = src.resolve()
+            if src_resolved != root and root not in src_resolved.parents:
+                raise ValueError(f'Source path outside root: {raw_path}')
+            resolved.append(src)
+        return resolved
+
+    async def _send_error(self, ws, error_type, cmd, message):
+        payload = {
+            'type': 'error',
+            'error': error_type,
+            'cmd': cmd,
+            'message': message,
+        }
+        await ws.send(json.dumps(payload))
+
+    async def _send_result(self, ws, cmd, detail):
+        payload = {
+            'type': 'op_result',
+            'cmd': cmd,
+            'status': 'ok',
+            'detail': detail,
+        }
+        await ws.send(json.dumps(payload))
+
+    async def _handle_copy(self, ws, j_msg):
+        src_paths = self._resolve_source_paths(j_msg.get('paths', []))
+        target = j_msg.get('target')
+        if not target:
+            raise ValueError('copy target is required')
+
+        target_path = Path(target)
+        if target_path.exists() and target_path.is_dir():
+            for src in src_paths:
+                dest = target_path / src.name
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
+        else:
+            if len(src_paths) > 1:
+                raise ValueError('target directory must exist for multiple copy operations')
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_paths[0], target_path)
+
+        await self._send_result(ws, 'copy', f'Copied {len(src_paths)} file(s).')
+
+    async def _handle_move(self, ws, j_msg):
+        src_paths = self._resolve_source_paths(j_msg.get('paths', []))
+        target = j_msg.get('target')
+        if not target:
+            raise ValueError('move target is required')
+
+        target_path = Path(target)
+        if target_path.exists() and target_path.is_dir():
+            for src in src_paths:
+                dest = target_path / src.name
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src), str(dest))
+        else:
+            if len(src_paths) > 1:
+                raise ValueError('target directory must exist for multiple move operations')
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(src_paths[0]), str(target_path))
+
+        await self._send_result(ws, 'move', f'Moved {len(src_paths)} file(s).')
+
+    async def _handle_delete(self, ws, j_msg):
+        src_paths = self._resolve_source_paths(j_msg.get('paths', []))
+        for src in src_paths:
+            if src.is_dir():
+                raise ValueError(f'Not a file: {src}')
+            src.unlink()
+
+        await self._send_result(ws, 'delete', f'Deleted {len(src_paths)} file(s).')
 
     # ====== Core handler ======
     async def handler(self, ws):

@@ -111,6 +111,35 @@
     font-size: 13px;
     color: #333;
   }
+
+  .toast {
+    position: fixed;
+    right: 20px;
+    top: 20px;
+    min-width: 220px;
+    padding: 14px 18px;
+    border-radius: 10px;
+    color: #fff;
+    font-size: 14px;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.18);
+    z-index: 1000;
+    pointer-events: none;
+  }
+
+  .toast.success {
+    background: #28a745;
+  }
+
+  .toast.error {
+    background: #d93025;
+  }
+
+  .toast .detail {
+    margin-top: 6px;
+    font-size: 12px;
+    opacity: 0.9;
+    line-height: 1.4;
+  }
 </style>
 </head>
 <body>
@@ -137,6 +166,8 @@
   <button onclick="doDelete()">Delete</button>
 </div>
 
+<div id="toast" class="toast" style="display:none;"></div>
+
 <div id="resultArea"></div>
 
 <script>
@@ -151,15 +182,32 @@ function connectWS() {
     console.log(event.data);
     const msg = JSON.parse(event.data);
 
-    if (msg.type === "db_done") {
-      alert("Database created. Scanned " + msg.count + " images.");
-    }
+    switch (msg.type) {
+      case "hello":
+        document.getElementById("rootInput").value = msg.payload || "";
+        break;
 
-    if (msg.type === "search_result") {
-      for (const item of JSON.parse(msg.payload)) {
-        console.log(item);
-        addCard(item);
-      }
+      case "db_done":
+        showToast("success", "Database created", "Scanned " + msg.count + " images.");
+        break;
+
+      case "search_result":
+        for (const item of JSON.parse(msg.payload)) {
+          console.log(item);
+          addCard(item);
+        }
+        break;
+
+      case "op_result":
+        showToast("success", msg.cmd + " successful", msg.detail || "Operation completed.");
+        break;
+
+      case "error":
+        showToast("error", msg.cmd ? msg.cmd + " failed" : "Error", msg.message || msg.error || "Unknown error.");
+        break;
+
+      default:
+        console.warn("Unhandled message type:", msg.type);
     }
   };
 
@@ -171,11 +219,23 @@ function connectWS() {
 
 connectWS();
 
+let toastTimer = null;
+function showToast(type, title, detail) {
+  const toast = document.getElementById("toast");
+  toast.className = "toast " + type;
+  toast.innerHTML = `<strong>${title}</strong>${detail ? `<div class="detail">${detail}</div>` : ""}`;
+  toast.style.display = "block";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toast.style.display = "none";
+  }, 4500);
+}
+
 function createDB() {
   const root = document.getElementById("rootInput").value;
   if (!root) return alert("Root is empty.");
 
-  ws.send(JSON.stringify({ cmd: "create_db", payload: "root" }));
+  ws.send(JSON.stringify({ cmd: "create_db", payload: root }));
 }
 
 function search() {
