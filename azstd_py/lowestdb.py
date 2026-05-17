@@ -121,6 +121,21 @@ class LowestDB:
 		conn.close()
 		return 0
 
+	def update_hash(self, old_hash, new_hash):
+		conn = sqlite3.connect(self.db_fname)
+		c = conn.cursor()
+		if len(list(c.execute(self.__cmd_selectXFromWhereYeq_('HASH', 'HASH'), (old_hash, )))) == 0:
+			conn.close()
+			return -0x04
+		try:
+			c.execute(f"UPDATE {self.table_name} SET HASH=? WHERE HASH=?", (new_hash, old_hash))
+			conn.commit()
+		except sqlite3.IntegrityError:
+			conn.close()
+			return -0x03
+		conn.close()
+		return 0
+
 	def extract_value_by_hash(self, hash_, col_name):
 		conn = sqlite3.connect(self.db_fname)
 		c = conn.cursor()

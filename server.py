@@ -18,6 +18,7 @@ class WSServer:
                                     conf['db_path'],
                                     n_thread=conf['torch_thread'],
                                     gpu=conf['use_gpu'])
+        self.root = Path(self.scanner.root).resolve()
         self._server = None
 
     # ====== Lifecycle hooks (leave empty as requested) ======
@@ -60,21 +61,33 @@ class WSServer:
         except Exception as e:
             await self._send_error(ws, 'command_failed', j_msg.get('cmd'), str(e))
 
+    def _abs_path(self, rel_path):
+        return (self.root / rel_path).resolve()
+
     def _resolve_source_paths(self, paths):
         if not isinstance(paths, list) or len(paths) == 0:
             raise ValueError('paths must be a non-empty list')
 
-        root = Path(self.scanner.root).resolve()
         resolved = []
         for raw_path in paths:
             src = Path(raw_path)
-            if not src.exists():
+            if src.is_absolute():
+                abs_src = src.resolve()
+            else:
+                abs_src = (self.root / src).resolve()
+            if not abs_src.exists():
                 raise FileNotFoundError(f'Source not found: {raw_path}')
-            src_resolved = src.resolve()
-            if src_resolved != root and root not in src_resolved.parents:
+            if abs_src != self.root and self.root not in abs_src.parents:
                 raise ValueError(f'Source path outside root: {raw_path}')
-            resolved.append(src)
+            resolved.append(abs_src.relative_to(self.root))
         return resolved
+
+    def _resolve_target_path(self, target):
+        tgt = Path(target)
+        abs_tgt = tgt.resolve() if tgt.is_absolute() else (self.root / tgt).resolve()
+        if abs_tgt != self.root and self.root not in abs_tgt.parents:
+            raise ValueError(f'Target path outside root: {target}')
+        return abs_tgt.relative_to(self.root)
 
     async def _send_error(self, ws, error_type, cmd, message):
         payload = {
@@ -100,17 +113,28 @@ class WSServer:
         if not target:
             raise ValueError('copy target is required')
 
-        target_path = Path(target)
-        if target_path.exists() and target_path.is_dir():
+        target_rel = self._resolve_target_path(target)
+        target_abs = self._abs_path(target_rel)
+        if target_abs.exists() and target_abs.is_dir():
             for src in src_paths:
-                dest = target_path / src.name
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(src, dest)
+                src_abs = self._abs_path(src)
+                dest_rel = target_rel / src.name
+                dest_abs = self._abs_path(dest_rel)
+                dest_abs.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_abs, dest_abs)
+        elif len(src_paths) > 1:
+            target_abs.mkdir(parents=True, exist_ok=True)
+            for src in src_paths:
+                src_abs = self._abs_path(src)
+                dest_rel = target_rel / src.name
+                dest_abs = self._abs_path(dest_rel)
+                dest_abs.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_abs, dest_abs)
         else:
-            if len(src_paths) > 1:
-                raise ValueError('target directory must exist for multiple copy operations')
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_paths[0], target_path)
+            dest_rel = target_rel
+            dest_abs = self._abs_path(dest_rel)
+            dest_abs.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(self._abs_path(src_paths[0]), dest_abs)
 
         await self._send_result(ws, 'copy', f'Copied {len(src_paths)} file(s).')
 
@@ -120,26 +144,45 @@ class WSServer:
         if not target:
             raise ValueError('move target is required')
 
-        target_path = Path(target)
-        if target_path.exists() and target_path.is_dir():
+        target_rel = self._resolve_target_path(target)
+        target_abs = self._abs_path(target_rel)
+        if target_abs.exists() and target_abs.is_dir():
             for src in src_paths:
-                dest = target_path / src.name
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(src), str(dest))
+                src_abs = self._abs_path(src)
+                dest_rel = target_rel / src.name
+                dest_abs = self._abs_path(dest_rel)
+                dest_abs.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src_abs), str(dest_abs))
+                self.scanner.db.delete_path(str(dest_rel))
+                self.scanner.db.update_path(str(src), str(dest_rel))
+        elif len(src_paths) > 1:
+            target_abs.mkdir(parents=True, exist_ok=True)
+            for src in src_paths:
+                src_abs = self._abs_path(src)
+                dest_rel = target_rel / src.name
+                dest_abs = self._abs_path(dest_rel)
+                dest_abs.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src_abs), str(dest_abs))
+                self.scanner.db.delete_path(str(dest_rel))
+                self.scanner.db.update_path(str(src), str(dest_rel))
         else:
-            if len(src_paths) > 1:
-                raise ValueError('target directory must exist for multiple move operations')
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(src_paths[0]), str(target_path))
+            dest_rel = target_rel
+            dest_abs = self._abs_path(dest_rel)
+            dest_abs.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(self._abs_path(src_paths[0])), str(dest_abs))
+            self.scanner.db.delete_path(str(dest_rel))
+            self.scanner.db.update_path(str(src_paths[0]), str(dest_rel))
 
         await self._send_result(ws, 'move', f'Moved {len(src_paths)} file(s).')
 
     async def _handle_delete(self, ws, j_msg):
         src_paths = self._resolve_source_paths(j_msg.get('paths', []))
         for src in src_paths:
-            if src.is_dir():
+            src_abs = self._abs_path(src)
+            if src_abs.is_dir():
                 raise ValueError(f'Not a file: {src}')
-            src.unlink()
+            src_abs.unlink()
+            self.scanner.db.delete_path(str(src))
 
         await self._send_result(ws, 'delete', f'Deleted {len(src_paths)} file(s).')
 

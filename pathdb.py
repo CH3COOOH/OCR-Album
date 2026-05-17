@@ -10,6 +10,15 @@ class PathDB:
     
     def add_records(self, path_text_matrix):
         return self.db.insert_rows(path_text_matrix)
+
+    def get_text_by_path(self, img_path):
+        return self.db.extract_value_by_hash(img_path, 'OCR_TXT')
+
+    def update_path(self, old_path, new_path):
+        return self.db.update_hash(old_path, new_path)
+
+    def delete_path(self, img_path):
+        return self.db.delete_row_by_hash(img_path)
     
     def search_by_text(self, keyword):
         return self.db.extract_rows_by_keyword('OCR_TXT', keyword)
